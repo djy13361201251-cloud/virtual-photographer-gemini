@@ -1,0 +1,7 @@
+{
+  "name": "Instant Studio AI",
+  "description": "Real-time product photography studio using your camera and Gemini AI to generate professional backdrops instantly.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
