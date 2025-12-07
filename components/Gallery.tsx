@@ -19,11 +19,12 @@ const Gallery: React.FC<GalleryProps> = ({ images, onRemove, onView }) => {
          <span className="text-xs text-gray-500">{images.length} photos</span>
       </div>
       
-      <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 snap-x px-1">
+      {/* Changed from flex/horizontal-scroll to grid/vertical-flow */}
+      <div className="grid grid-cols-2 gap-3 px-1 pb-4">
         {images.map((img) => (
           <div 
             key={img.id} 
-            className="relative flex-none w-48 aspect-square rounded-xl overflow-hidden group snap-start border border-studio-700 shadow-lg transition-transform active:scale-95 bg-studio-800"
+            className="relative w-full aspect-square rounded-xl overflow-hidden group border border-studio-700 shadow-lg transition-transform active:scale-95 bg-studio-800"
           >
             <img 
               src={img.generatedUrl} 
