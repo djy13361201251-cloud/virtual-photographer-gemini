@@ -138,8 +138,8 @@ export default function App() {
           <Sparkles size={48} className="text-studio-accent mb-6 animate-pulse" />
           <h1 className="text-3xl font-bold mb-2">Instant Studio AI</h1>
           <p className="text-gray-400 mb-8 text-sm leading-relaxed">
-            Generate professional 4K product photography instantly. 
-            <br/>To verify your identity and manage quotas, please provide a Google Gemini API Key.
+            Create Your Virtual Studio with Gemini 3.
+            <br/>Zero Cost. Pro Product Shots in 5 Minutes.
           </p>
           
           {isAIStudioEnv ? (

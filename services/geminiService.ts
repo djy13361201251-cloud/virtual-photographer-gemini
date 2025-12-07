@@ -36,12 +36,17 @@ export const generateStudioShot = async (
   const lightDirText = directionMap[settings.lightingDirection] || 'professional studio lighting';
 
   // Core system instructions for PRO model
-  // ENHANCED PROMPT: Focused on strict subject preservation and 4K quality
+  // ENHANCED PROMPT: Focused on strict subject preservation, isolation, and 4K quality
   let prompt = `
     You are a professional commercial product photographer and high-end retoucher.
     
     OBJECTIVE:
-    Composite the foreground object (product) from the input image onto a new background description: "${bgDescription}".
+    Identify the SINGLE MAIN SUBJECT in the foreground of the input image. Isolate it completely from the original environment and composite it onto a new background: "${bgDescription}".
+
+    CRITICAL SEGMENTATION RULES:
+    1. IGNORE SURROUNDINGS: Discard the original background, table surfaces, and any surrounding clutter. 
+    2. IGNORE INTERFERENCE: If hands are holding the object or other objects are partially visible at the edges, REMOVE THEM. Keep only the main product.
+    3. FOCUS: The camera has focused on the main product. Everything else is irrelevant.
 
     STRICT RULES FOR SUBJECT PRESERVATION (DO NOT IGNORE):
     1. THE PRODUCT IS SACRED: Do NOT redraw, stylize, or alter the internal details of the product.
@@ -72,9 +77,10 @@ export const generateStudioShot = async (
 
       RULES:
       1. PRESERVE IDENTITY: The product from Image 1 must look exactly the same in the final output. Do not alter its shape, color, or details.
-      2. PERSPECTIVE: Place the product naturally within the scene of Image 2.
-      3. LIGHTING MATCH: Apply lighting style "${lighting.value}" with direction ${lightDirText} to match the background environment.
-      4. QUALITY: 4K Ultra High Definition.
+      2. ISOLATION: Remove the original background from Image 1 completely. Only transfer the main product.
+      3. PERSPECTIVE: Place the product naturally within the scene of Image 2.
+      4. LIGHTING MATCH: Apply lighting style "${lighting.value}" with direction ${lightDirText} to match the background environment.
+      5. QUALITY: 4K Ultra High Definition.
     `;
   }
 
@@ -104,7 +110,11 @@ export const generateStudioShot = async (
     // Fallback to Flash if Pro fails (e.g. Permission Denied 403)
     try {
       // Simplified prompt for Flash model
-      let flashPrompt = `Product photography. Keep the product exactly as it looks in the original image. Do not change the product. Only change the background to: ${bgDescription}. Lighting: ${lighting.value}. High quality 4K.`;
+      let flashPrompt = `Professional Product Photography. 
+      1. Identify the MAIN PRODUCT. Ignore background, clutter, and holding hands.
+      2. Keep the product EXACTLY as it looks in the original image. Do not alter text or details.
+      3. Place ONLY the product onto this background: ${bgDescription}.
+      4. Lighting: ${lighting.value}. High quality 4K.`;
       
       const flashParts: any[] = [
           { inlineData: { mimeType: 'image/jpeg', data: productBase64 } }
@@ -113,7 +123,7 @@ export const generateStudioShot = async (
       if (background.type === 'image' && background.imageSrc) {
           const bgBase64 = background.imageSrc.replace(/^data:image\/(png|jpeg|webp);base64,/, "");
           flashParts.push({ inlineData: { mimeType: 'image/jpeg', data: bgBase64 } });
-          flashPrompt = `Composite product from image 1 into image 2. Keep product exact. High quality.`;
+          flashPrompt = `Composite product from image 1 into image 2. Isolate product. Keep product exact. High quality.`;
       }
       
       flashParts.push({ text: flashPrompt });

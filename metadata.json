@@ -1,6 +1,6 @@
 {
   "name": "Instant Studio AI",
-  "description": "Real-time product photography studio using your camera and Gemini AI to generate professional backdrops instantly.",
+  "description": "Create Your Virtual Studio with Gemini 3. Zero Cost. Pro Product Shots in 5 Minutes.",
   "requestFramePermissions": [
     "camera"
   ]
