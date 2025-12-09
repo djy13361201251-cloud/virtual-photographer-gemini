@@ -46,8 +46,8 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
     }
   };
 
+  // Optimize interaction: Listen for new devices being plugged in/out
   useEffect(() => {
-    // Listen for device changes (plugging/unplugging cameras)
     const handleDeviceChange = () => {
       getDevices();
     };

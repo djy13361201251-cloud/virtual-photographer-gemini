@@ -59,7 +59,8 @@ export const PRESET_LIGHTING: LightingOption[] = [
 ];
 
 export const PRESET_BACKGROUNDS: BackgroundOption[] = [
-  // Keeping textures/gradients as presets, but solids will be handled by the joystick
+  // Defaulting to White as requested
+  { id: 'solid-white', name: 'Studio White', type: 'solid', value: '#FFFFFF', previewClass: 'bg-white border border-gray-300' },
   { id: 'gradient-sunset', name: 'Sunset', type: 'gradient', value: 'vibrant sunset orange to purple gradient studio background', previewClass: 'bg-gradient-to-tr from-orange-400 to-purple-500' },
   { id: 'gradient-blue', name: 'Tech Blue', type: 'gradient', value: 'futuristic cyan to deep blue neon gradient background', previewClass: 'bg-gradient-to-br from-cyan-400 to-blue-800' },
   { id: 'tex-wood', name: 'Wood', type: 'texture', value: 'natural warm oak wooden table surface with blurred background', previewClass: 'bg-[#8B4513]' },
