@@ -1,6 +1,5 @@
-
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
-import { Camera as CameraIcon, AlertCircle, SwitchCamera } from 'lucide-react';
+import { Camera as CameraIcon, AlertCircle, ChevronDown } from 'lucide-react';
 import { AspectRatio } from '../types';
 
 interface CameraProps {
@@ -22,6 +21,10 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
   // Device switching state
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
+  
+  // Heuristic: Desktop defaults to 'user' (mirrored), Mobile defaults to 'environment' (not mirrored)
+  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>(isMobile ? 'environment' : 'user');
 
   const stopStream = () => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -43,145 +46,118 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
     }
   };
 
-  const startCamera = async (deviceId?: string) => {
+  useEffect(() => {
+    // Listen for device changes (plugging/unplugging cameras)
+    const handleDeviceChange = () => {
+      getDevices();
+    };
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    }
+    return () => {
+      if (navigator.mediaDevices) {
+        navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      }
+    }
+  }, []);
+
+  const startCamera = async (deviceId?: string, preferredMode?: 'user' | 'environment') => {
     stopStream();
     setError(null);
+    
+    let targetMode = preferredMode || facingMode;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setError("Camera API not supported in this browser/context.");
+      setError("Camera API not supported in this browser.");
       return;
     }
 
     try {
-      // OPTIMIZATION: Request high-spec stream with native resolution
+      // 4K Ideal, but min 1080p. 
       const constraints: MediaStreamConstraints = {
         audio: false,
         video: deviceId 
           ? { 
-              deviceId: { exact: deviceId }, 
-              width: { ideal: 3840, min: 1920 }, // Prefer 4K, min 1080p
-              height: { ideal: 2160, min: 1080 },
-              frameRate: { ideal: 30, max: 60 },
-              // @ts-ignore - 'resizeMode' is a newer constraint supported in Chrome
-              resizeMode: 'none' 
+              deviceId: { exact: deviceId },
+              width: { ideal: 3840 }, 
+              height: { ideal: 2160 },
             }
           : { 
-              facingMode: 'environment', 
-              width: { ideal: 3840, min: 1920 }, 
-              height: { ideal: 2160, min: 1080 },
-              frameRate: { ideal: 30, max: 60 },
-              // @ts-ignore
-              resizeMode: 'none'
+              facingMode: targetMode,
+              width: { ideal: 3840 }, 
+              height: { ideal: 2160 },
             }
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
-      // OPTIMIZATION: Enable Continuous Autofocus if supported
+      // Attempt Autofocus
       const track = stream.getVideoTracks()[0];
-      const capabilities = track.getCapabilities() as any;
+      const capabilities = (track.getCapabilities ? track.getCapabilities() : {}) as any;
       if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
         try {
-          await track.applyConstraints({
-            advanced: [{ focusMode: 'continuous' }] as any
-          });
-          console.log("Continuous autofocus enabled");
-        } catch (e) {
-          console.warn("Could not enable autofocus:", e);
-        }
+          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as any);
+        } catch (e) { console.warn("Autofocus not supported", e); }
       }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        
-        // OPTIMIZATION: Set internal resolution to match stream exactly
-        // This prevents the browser compositor from scaling up a low-res texture
         videoRef.current.onloadedmetadata = () => {
           if (videoRef.current) {
-             const v = videoRef.current;
-             v.width = v.videoWidth;
-             v.height = v.videoHeight;
-             v.play();
+             videoRef.current.play().catch(e => console.error("Play error", e));
              setStreamStarted(true);
           }
           
-          // Identify current device
           const settings = track.getSettings();
           if (settings.deviceId) setCurrentDeviceId(settings.deviceId);
+          
+          if (settings.facingMode) {
+             setFacingMode(settings.facingMode as 'user' | 'environment');
+          } else {
+             // Fallback: If browser doesn't report mode (common on desktop webcams), assume targetMode
+             setFacingMode(targetMode);
+          }
         };
       }
+      
+      // Refresh device list to ensure labels are available after permission grant
       getDevices();
 
     } catch (err: any) {
-      console.error(err);
+      console.error("Camera Error:", err);
       if (err.name === 'NotAllowedError') {
-        setError("Permission denied. Please allow camera access.");
+        setError("Camera permission denied.");
       } else if (err.name === 'OverconstrainedError') {
-         // Fallback for devices that don't support 1080p/4K
-         console.warn("High-Res unavailable, retrying with standard HD...");
-         setTimeout(() => startCameraFallback(deviceId), 500);
-         return;
+         // Fallback to basic settings
+         startCameraFallback(deviceId, targetMode);
       } else {
         setError("Camera error: " + err.message);
       }
     }
   };
 
-  // Fallback method for older cameras
-  const startCameraFallback = async (deviceId?: string) => {
+  const startCameraFallback = async (deviceId?: string, mode: 'user' | 'environment' = 'user') => {
     try {
-      // Even in fallback, try to get 1080p (Full HD) instead of VGA
       const constraints = {
         audio: false,
-        video: deviceId 
-          ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } } 
-          : { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+        video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: mode }
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-             videoRef.current.width = videoRef.current.videoWidth;
-             videoRef.current.height = videoRef.current.videoHeight;
-             videoRef.current.play();
-             setStreamStarted(true);
-          }
-        };
+        videoRef.current.play();
+        setStreamStarted(true);
+        setFacingMode(mode); 
+        
+        // Try to update current device ID if possible
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        if (settings.deviceId) setCurrentDeviceId(settings.deviceId);
       }
-      setError(null); 
+      setError(null);
     } catch (e: any) {
-       // Deep fallback if 1080p fails (e.g. very old webcam)
-       console.warn("HD Fallback failed, trying basic VGA...");
-       try {
-          const basicConstraints = {
-            audio: false,
-            video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }
-          };
-          const stream = await navigator.mediaDevices.getUserMedia(basicConstraints);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.onloadedmetadata = () => {
-              if (videoRef.current) {
-                 videoRef.current.width = videoRef.current.videoWidth;
-                 videoRef.current.height = videoRef.current.videoHeight;
-                 videoRef.current.play();
-                 setStreamStarted(true);
-              }
-            };
-          }
-          setError(null);
-       } catch (finalErr: any) {
-          setError("Camera failed: " + finalErr.message);
-       }
+      setError("Could not start camera: " + e.message);
     }
-  };
-
-  const handleSwitchCamera = () => {
-    if (devices.length < 2) return;
-    const currentIndex = devices.findIndex(d => d.deviceId === currentDeviceId);
-    const nextIndex = (currentIndex + 1) % devices.length;
-    startCamera(devices[nextIndex].deviceId);
   };
 
   useEffect(() => {
@@ -189,16 +165,9 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
     return () => stopStream();
   }, []);
 
-  // Calculate Aspect Ratio Multiplier
   const getRatio = (ratio: AspectRatio): number => {
-    switch (ratio) {
-      case '1:1': return 1;
-      case '3:4': return 3/4;
-      case '4:3': return 4/3;
-      case '16:9': return 16/9;
-      case '9:16': return 9/16;
-      default: return 1;
-    }
+    const map: Record<string, number> = { '1:1': 1, '3:4': 3/4, '4:3': 4/3, '16:9': 16/9, '9:16': 9/16 };
+    return map[ratio] || 1;
   };
 
   useImperativeHandle(ref, () => ({
@@ -207,7 +176,6 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
         const video = videoRef.current;
         const canvas = canvasRef.current;
         
-        // Use the actual stream dimensions
         const videoW = video.videoWidth;
         const videoH = video.videoHeight;
         const videoRatio = videoW / videoH;
@@ -216,13 +184,11 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
         let cropW, cropH, cropX, cropY;
 
         if (videoRatio > targetRatio) {
-          // Video is wider than target: Crop width
           cropH = videoH;
           cropW = videoH * targetRatio;
           cropX = (videoW - cropW) / 2;
           cropY = 0;
         } else {
-          // Video is taller than target: Crop height
           cropW = videoW;
           cropH = videoW / targetRatio;
           cropX = 0;
@@ -234,50 +200,53 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
 
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          // Note: We draw from the video directly, so capture is NOT mirrored (text remains readable)
-          // The CSS mirror effect is only for the preview.
+          // IMPORTANT: Capture raw image (not mirrored) so product text is readable
           ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-          const imageSrc = canvas.toDataURL('image/jpeg', 0.95); // High quality JPEG
+          const imageSrc = canvas.toDataURL('image/jpeg', 0.95);
           onCapture(imageSrc);
         }
       }
     }
   }));
 
-  if (error && !error.includes("Retrying")) {
+  if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-studio-800 text-red-400 p-6 text-center">
         <AlertCircle size={32} className="mb-2" />
-        <p className="mb-4">{error}</p>
-        <button onClick={() => startCamera()} className="px-4 py-2 bg-studio-700 rounded-full text-white">Retry</button>
+        <p className="mb-4 text-sm">{error}</p>
+        <button onClick={() => startCamera()} className="px-4 py-2 bg-studio-700 rounded-full text-white text-sm hover:bg-studio-600">Retry Camera</button>
       </div>
     );
   }
 
+  // Preview Mirror Logic:
+  // Mirror if we are in 'user' mode (front camera / webcam default)
+  const isMirrored = facingMode === 'user';
+
   return (
-    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
+    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden group">
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        className={`w-full h-full object-cover transition-opacity duration-300 scale-x-[-1] ${streamStarted ? 'opacity-100' : 'opacity-0'}`}
+        className={`w-full h-full object-cover transition-transform duration-300 ${isMirrored ? 'scale-x-[-1]' : 'scale-x-1'}`}
       />
       
-      {/* Aspect Ratio Mask */}
+      {/* Aspect Ratio Overlay */}
       {streamStarted && (
          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
            <div 
-             className="border-2 border-white/50 shadow-[0_0_0_9999px_rgba(0,0,0,0.8)] transition-all duration-300"
+             className="border border-white/30 shadow-[0_0_0_9999px_rgba(0,0,0,0.85)] transition-all duration-300"
              style={{
                aspectRatio: aspectRatio.replace(':', '/'),
                width: getRatio(aspectRatio) >= 1 ? '90%' : 'auto',
                height: getRatio(aspectRatio) < 1 ? '90%' : 'auto',
-               maxWidth: '90%',
-               maxHeight: '90%'
+               maxWidth: '94%',
+               maxHeight: '94%'
              }}
            >
-              {/* Thirds Grid for composition */}
+              {/* Thirds Grid */}
               <div className="w-full h-full grid grid-cols-3 grid-rows-3 opacity-20">
                  <div className="border-r border-b border-white"></div>
                  <div className="border-r border-b border-white"></div>
@@ -293,31 +262,59 @@ const Camera = forwardRef<CameraHandle, CameraProps>(({ onCapture, isProcessing,
          </div>
       )}
       
-      {/* Hidden Canvas */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Switch Button */}
-      {devices.length > 1 && (
-        <button 
-          onClick={handleSwitchCamera}
-          className="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-full z-20 backdrop-blur-md active:scale-95"
-        >
-          <SwitchCamera size={20} />
-        </button>
+      {/* Device Selector (Top Right) */}
+      {streamStarted && devices.length > 0 && (
+         <div className="absolute top-4 right-4 z-20 w-48 max-w-[50vw]">
+           <div className="relative group/select">
+             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <CameraIcon size={14} className="text-gray-300" />
+             </div>
+             <select 
+               value={currentDeviceId}
+               onChange={(e) => startCamera(e.target.value)}
+               className="
+                 appearance-none 
+                 w-full 
+                 bg-black/40 backdrop-blur-md 
+                 text-white text-xs font-medium
+                 pl-9 pr-8 py-2.5 
+                 rounded-full 
+                 border border-white/10 
+                 hover:bg-black/60 hover:border-white/30
+                 focus:outline-none focus:ring-2 focus:ring-studio-accent focus:border-transparent
+                 cursor-pointer 
+                 transition-all
+                 truncate
+                 shadow-lg
+               "
+             >
+               {devices.map((device, index) => (
+                 <option key={device.deviceId} value={device.deviceId} className="bg-gray-900 text-white">
+                   {device.label || `Camera ${index + 1}`}
+                 </option>
+               ))}
+             </select>
+             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400 group-hover/select:text-white transition-colors">
+               <ChevronDown size={14} /> 
+             </div>
+           </div>
+         </div>
       )}
 
-      {/* Loading Overlay */}
+      {/* Loading */}
       {!streamStarted && !error && (
         <div className="absolute inset-0 flex items-center justify-center text-gray-500">
-           <CameraIcon className="w-12 h-12 animate-pulse" />
+           <CameraIcon className="w-8 h-8 animate-pulse" />
         </div>
       )}
 
-      {/* Processing Overlay */}
+      {/* Processing */}
       {isProcessing && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-30">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-30 animate-in fade-in duration-300">
            <div className="w-12 h-12 border-4 border-studio-accent border-t-transparent rounded-full animate-spin mb-4"></div>
-           <p className="text-white font-medium animate-pulse">Developing...</p>
+           <p className="text-white font-medium animate-pulse tracking-wide">Developing Photo...</p>
         </div>
       )}
     </div>

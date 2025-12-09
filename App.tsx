@@ -4,7 +4,7 @@ import ControlPanel from './components/ControlPanel';
 import Gallery from './components/Gallery';
 import { BackgroundOption, PRESET_BACKGROUNDS, GeneratedImage, AppState, CameraSettings, LightingOption, PRESET_LIGHTING } from './types';
 import { generateStudioShot } from './services/geminiService';
-import { Camera as CameraIcon, Sparkles, X, Download, Key, ExternalLink, ArrowRight } from 'lucide-react';
+import { Camera as CameraIcon, Sparkles, X, Download } from 'lucide-react';
 
 export default function App() {
   const cameraRef = useRef<CameraHandle>(null);
@@ -18,11 +18,6 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewedImage, setViewedImage] = useState<GeneratedImage | null>(null);
   
-  // Auth State
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [manualApiKey, setManualApiKey] = useState("");
-  const [isAIStudioEnv, setIsAIStudioEnv] = useState(false);
-  
   const [settings, setSettings] = useState<CameraSettings>({
     aspectRatio: '1:1',
     lightingDirection: 'front'
@@ -30,59 +25,16 @@ export default function App() {
   
   const [activeTab, setActiveTab] = useState<'background' | 'adjustments'>('background');
 
-  useEffect(() => {
-    // Check environment
-    const isAIStudio = typeof window !== 'undefined' && (window as any).aistudio;
-    setIsAIStudioEnv(!!isAIStudio);
-
-    const checkKey = async () => {
-      try {
-        if (isAIStudio && (window as any).aistudio.hasSelectedApiKey) {
-            const has = await (window as any).aistudio.hasSelectedApiKey();
-            setHasApiKey(has);
-        } else {
-            // Standalone mode: User must enter key manually
-            setHasApiKey(false);
-        }
-      } catch (e) {
-        console.error("Error checking API key:", e);
-        setHasApiKey(false);
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleConnectKey = async () => {
-    if ((window as any).aistudio && (window as any).aistudio.openSelectKey) {
-      try {
-        await (window as any).aistudio.openSelectKey();
-        setHasApiKey(true);
-      } catch (e: any) {
-        console.error("Key selection failed:", e);
-        setHasApiKey(false);
-      }
-    }
-  };
-
-  const handleManualKeySubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (manualApiKey.trim().length > 10) {
-      setHasApiKey(true);
-    }
-  };
-
   const handleCapture = async (originalImageBase64: string) => {
     setAppState(AppState.PROCESSING);
     setErrorMessage(null);
 
     try {
-      // Pass the manualApiKey if set, otherwise the service will use process.env.API_KEY (injected by AI Studio)
       const generatedImageBase64 = await generateStudioShot(
         originalImageBase64, 
         selectedBg, 
         selectedLighting, 
-        settings,
-        manualApiKey || undefined // Explicitly pass undefined if empty to trigger env fallback in service
+        settings
       );
 
       const newImage: GeneratedImage = {
@@ -104,18 +56,7 @@ export default function App() {
       setAppState(AppState.SUCCESS);
     } catch (error: any) {
       console.error("Failed:", error);
-      
-      // Handle "Requested entity was not found" (Key expired/invalid)
-      if (error.message && error.message.includes("Requested entity was not found")) {
-        setHasApiKey(false);
-        setErrorMessage("API Key invalid or expired. Please check your key.");
-      } else if (error.message && error.message.includes("API key not valid")) {
-        setHasApiKey(false);
-        setErrorMessage("Invalid API Key provided.");
-      } else {
-        setErrorMessage(error.message || "Failed to generate image.");
-      }
-      
+      setErrorMessage(error.message || "Failed to generate image.");
       setAppState(AppState.ERROR);
     }
   };
@@ -131,66 +72,6 @@ export default function App() {
       setSettings(prev => ({ ...prev, [key]: val }));
   };
 
-  if (!hasApiKey) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-studio-900 text-white p-6 text-center">
-        <div className="max-w-md w-full bg-studio-800 p-8 rounded-2xl border border-white/5 shadow-2xl flex flex-col items-center">
-          <Sparkles size={48} className="text-studio-accent mb-6 animate-pulse" />
-          <h1 className="text-3xl font-bold mb-2">Instant Studio AI</h1>
-          <p className="text-gray-400 mb-8 text-sm leading-relaxed">
-            Create Your Virtual Studio with Gemini 3.
-            <br/>Zero Cost. Pro Product Shots in 5 Minutes.
-          </p>
-          
-          {isAIStudioEnv ? (
-            <button 
-              onClick={handleConnectKey} 
-              className="w-full py-4 bg-white text-black rounded-xl font-bold text-lg hover:bg-gray-100 transition-transform active:scale-95 shadow-lg mb-6 flex items-center justify-center gap-2"
-            >
-              <Key size={20} />
-              Select API Key
-            </button>
-          ) : (
-            <form onSubmit={handleManualKeySubmit} className="w-full mb-6">
-               <div className="relative mb-4 group">
-                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
-                    <Key size={16} />
-                 </div>
-                 <input 
-                   type="password"
-                   value={manualApiKey}
-                   onChange={(e) => setManualApiKey(e.target.value)}
-                   placeholder="Paste your Gemini API Key"
-                   className="w-full pl-10 pr-4 py-4 bg-studio-900 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-studio-accent focus:ring-1 focus:ring-studio-accent transition-all"
-                   required
-                 />
-               </div>
-               <button 
-                type="submit"
-                disabled={manualApiKey.length < 10}
-                className="w-full py-4 bg-white disabled:bg-gray-600 disabled:text-gray-400 text-black rounded-xl font-bold text-lg hover:bg-gray-100 transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2"
-              >
-                Start Studio <ArrowRight size={20} />
-              </button>
-            </form>
-          )}
-
-          <a 
-            href="https://ai.google.dev/gemini-api/docs/billing" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-xs text-studio-accent hover:underline opacity-80"
-          >
-            Get an API Key <ExternalLink size={10} />
-          </a>
-          <p className="text-[10px] text-gray-500 mt-2 max-w-xs mx-auto">
-             Note: Your key is used locally for this session only and is never stored on our servers.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-screen max-w-md mx-auto bg-studio-900 shadow-2xl relative">
       {/* Header */}
@@ -201,21 +82,6 @@ export default function App() {
           </div>
           <h1 className="font-bold text-lg text-white">Instant Studio</h1>
         </div>
-        <button 
-            onClick={() => {
-               if (isAIStudioEnv) {
-                 handleConnectKey();
-               } else {
-                 setHasApiKey(false);
-                 setManualApiKey("");
-               }
-            }}
-            className="flex items-center gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full"
-            title="Switch API Key"
-        >
-            <Key size={14} />
-            <span>API Key</span>
-        </button>
       </header>
 
       {/* Main Content */}
@@ -312,12 +178,6 @@ export default function App() {
                   <>
                     <span className="text-gray-600">|</span>
                     <span>{viewedImage.settings.lightingName}</span>
-                  </>
-                )}
-                {viewedImage.settings.lightingDirection && (
-                  <>
-                    <span className="text-gray-600">|</span>
-                    <span className="capitalize">{viewedImage.settings.lightingDirection}</span>
                   </>
                 )}
              </div>

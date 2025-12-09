@@ -5,12 +5,10 @@ export const generateStudioShot = async (
   imageBase64: string,
   background: BackgroundOption,
   lighting: LightingOption,
-  settings: CameraSettings,
-  apiKey?: string
+  settings: CameraSettings
 ): Promise<string> => {
-  // PRIORITY: Use manually provided key first (for standalone users), 
-  // fallback to process.env.API_KEY (for AI Studio embedded users).
-  const ai = new GoogleGenAI({ apiKey: apiKey || process.env.API_KEY });
+  // Use process.env.API_KEY directly as required
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   // Clean base64 string
   const productBase64 = imageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "");
@@ -131,7 +129,6 @@ export const generateStudioShot = async (
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts: flashParts },
-        // Flash does not support imageConfig with imageSize
       });
       
       const img = extractImage(response);
